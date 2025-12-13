@@ -90,6 +90,7 @@ var debug_ui: Node = null
 var selected_booster: String = ""
 var selected_booster_tile: Node = null
 var booster_in_progress: bool = false
+var run_boosters: Array = []
 
 func set_state(next: BoardState) -> void:
 	if current_state == next:
@@ -965,6 +966,13 @@ func reset_game() -> void:
 	emit_signal("score_changed", score)
 	emit_signal("moves_changed", moves_left)
 	set_state(BoardState.WaitForInput)
+	print("Run boosters: %s" % [run_boosters])
+
+func set_run_boosters(choices: Array) -> void:
+	run_boosters = choices.duplicate()
+	if run_boosters.size() > 3:
+		run_boosters.resize(3)
+	print("Selected boosters for run: %s" % [run_boosters])
 
 func can_swap_positions(a: Vector2i, b: Vector2i) -> bool:
 	if not _in_bounds(a) or not _in_bounds(b):
