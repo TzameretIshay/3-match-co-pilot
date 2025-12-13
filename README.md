@@ -15,3 +15,7 @@ How to open:
 Notes:
 - Placeholder images are referenced as `res://assets/tile_0.png`...`tile_5.png` but not included. Add your own (64x64) PNGs with those names to see tile visuals.
 - This starter focuses on core gameplay: grid generation, swap, match detection, gravity and refill. Use the docs in `docs/` to understand the code.
+
+Additional notes:
+- Swap animations: basic tween-based swap animations are implemented for visual polish.
+- Gravity/refill currently update positions instantly; consider adding tweens for falling tiles.

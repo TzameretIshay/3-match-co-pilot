@@ -8,4 +8,10 @@ Expected files (place your own art/sfx here):
 - `pop.wav` (short pop sound)
 - `match_chain.wav` (pleasant rising tone for combos)
 
-If these files are present, the `Grid` manager will automatically assign `tile_X.png` textures to tile instances.
+Placeholders included in this repo:
+- `tile_0.svg` ... `tile_5.svg` — simple 64x64 SVG tile placeholders.
+- `swap.wav`, `pop.wav`, `match_chain.wav` — placeholder text files named as WAVs. Replace with real WAV files (44.1kHz recommended).
+
+Notes:
+- The game will procedurally generate textures at runtime if `res://assets/tile_X.png` are not present; SVGs are provided as editable vector placeholders you can convert to PNG if desired.
+- For best audio behavior, replace the placeholder `.wav` files with proper WAV files and re-import in Godot.

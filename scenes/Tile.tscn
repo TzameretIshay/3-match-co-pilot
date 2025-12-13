@@ -1,15 +1,16 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=3 format=3]
 
-[ext_resource path="res://scripts/Tile.gd" type="Script" id=1]
+[ext_resource type="Script" path="res://scripts/Tile.gd" id="1"]
+
+[sub_resource type="CircleShape2D" id="1"]
+radius = 32.0
 
 [node name="Tile" type="Area2D"]
-script = ExtResource( 1 )
-position = Vector2( 0, 0 )
+script = ExtResource("1")
+position = Vector2(0, 0)
 
 [node name="Sprite" type="Sprite2D" parent="."]
-texture = null
 centered = true
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="."]
-shape = CircleShape2D.new()
-shape.radius = 24.0
+shape = SubResource("1")

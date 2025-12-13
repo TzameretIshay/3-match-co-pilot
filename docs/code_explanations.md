@@ -16,6 +16,9 @@ Scripts
 
 - `scripts/Grid.gd`:
   - Manages a 2D `grid` array of tile nodes and handles spawning, swapping, match detection, clearing, gravity and refilling.
+  - Now also generates procedural placeholder textures when `res://assets/tile_X.png` is not present and provides simple generated SFX playback via an `AudioStreamGenerator`.
+  - Swap animations use `create_tween()`.
+  - Detects match groups and creates simple power-ups for matches of length 4 (line clear) and 5+ (bomb). Power-ups are stored on tiles as `is_powerup` and `powerup_type` and are expanded when cleared.
   - Key constants: `rows`, `cols`, `TILE_TYPES` (default 6), `moves_limit`.
   - `init_grid()` fills board and ensures there are no immediate matches at start.
   - `spawn_tile(r, c, type_idx)` creates a `Tile` instance, positions it, and assigns texture if present.
