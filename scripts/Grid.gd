@@ -55,6 +55,8 @@ enum BoardState {
 @export var selection_mode: SelectionMode = SelectionMode.Click
 @export var fill_mode: FillMode = FillMode.FallDown
 @export var board_config: Match3BoardConfig
+@export var debug_mode: bool = false
+@export var debug_ui_visible: bool = false
 
 # ===== GAME CONSTANTS =====
 const TILE_TYPES: int = 6             # 6 different tile colors (0-5)
@@ -83,6 +85,11 @@ var default_rules := [
 
 var audio_player: AudioStreamPlayer
 var audio_generator: AudioStreamGenerator
+
+var debug_ui: Node = null
+var selected_booster: String = ""
+var selected_booster_tile: Node = null
+var booster_in_progress: bool = false
 
 func set_state(next: BoardState) -> void:
 	if current_state == next:
@@ -116,6 +123,10 @@ func _ready() -> void:
 	
 	# Spawn initial 8x8 grid ensuring no immediate matches
 	init_grid()
+	
+	# Setup debug UI if enabled
+	if debug_mode:
+		_setup_debug_ui()
 
 func init_grid() -> void:
 	# Clear any previous grid
@@ -313,6 +324,26 @@ func _on_tile_clicked(tile: Node) -> void:
 	if current_state != BoardState.WaitForInput:
 		return
 	if moves_left <= 0:
+		return
+
+	# If in debug mode and no game selection, allow booster tile selection
+	if debug_mode and selected_tile == null and selected_booster_tile == null:
+		selected_booster_tile = tile
+		var tween = create_tween()
+		tween.set_trans(Tween.TRANS_SINE)
+		tween.set_ease(Tween.EASE_OUT)
+		tween.tween_property(selected_booster_tile, "scale", Vector2(1.3, 1.3), 0.15)
+		print("DEBUG: Selected tile at [%d, %d] for booster" % [tile.row, tile.col])
+		return
+
+	# Deselect booster tile if clicking it again
+	if debug_mode and selected_booster_tile == tile:
+		var tween = create_tween()
+		tween.set_trans(Tween.TRANS_SINE)
+		tween.set_ease(Tween.EASE_OUT)
+		tween.tween_property(selected_booster_tile, "scale", Vector2(1.0, 1.0), 0.15)
+		selected_booster_tile = null
+		print("DEBUG: Deselected booster tile")
 		return
 
 	if selection_mode != SelectionMode.Click:
@@ -566,6 +597,100 @@ func handle_matches_and_refill(result: Dictionary) -> void:
 	else:
 		set_state(BoardState.WaitForInput)
 
+func apply_booster_clear(destroy_list: Array) -> void:
+	# Clear arbitrary positions (from boosters), then apply gravity/refill and cascades
+	if destroy_list.is_empty():
+		return
+	set_state(BoardState.Consume)
+
+	var to_clear = []
+	var to_clear_set = {}
+	for pos in destroy_list:
+		if pos is Array and pos.size() >= 2:
+			var r = int(pos[0])
+			var c = int(pos[1])
+			var key = "%d_%d" % [r, c]
+			if not to_clear_set.has(key):
+				to_clear_set[key] = true
+				to_clear.append([r, c])
+
+	var pop_tweens = []
+	for tile_data in to_clear:
+		var tr = tile_data[0]
+		var tc = tile_data[1]
+		if tr >= 0 and tr < rows and tc >= 0 and tc < cols:
+			var t = grid[tr][tc]
+			if t:
+				var tween = create_tween()
+				tween.set_trans(Tween.TRANS_SINE)
+				tween.set_ease(Tween.EASE_IN)
+				tween.tween_property(t, "scale", Vector2(0.1, 0.1), 0.12)
+				pop_tweens.append(tween)
+
+	if pop_tweens.size() > 0:
+		await pop_tweens[0].finished
+
+	for tile_data in to_clear:
+		var tr = tile_data[0]
+		var tc = tile_data[1]
+		if tr >= 0 and tr < rows and tc >= 0 and tc < cols:
+			var t = grid[tr][tc]
+			if t:
+				t.queue_free()
+				grid[tr][tc] = null
+
+	score += to_clear.size() * 10
+	emit_signal("score_changed", score)
+
+	var fall_tweens = []
+	match fill_mode:
+		FillMode.InPlace:
+			for r in range(rows):
+				for c in range(cols):
+					if grid[r][c] == null:
+						var new_tile = spawn_tile(r, c, rng.randi_range(0, TILE_TYPES - 1))
+						new_tile.position = Vector2(c * 64, r * 64)
+						grid[r][c] = new_tile
+		FillMode.FallDown, FillMode.SideFall:
+			for c in range(cols):
+				var write_r = rows - 1
+				for read_r in range(rows - 1, -1, -1):
+					if grid[read_r][c] != null:
+						var t = grid[read_r][c]
+						grid[write_r][c] = t
+						t.row = write_r
+						var target_y = write_r * 64
+						var tween = create_tween()
+						tween.set_trans(Tween.TRANS_SINE)
+						tween.set_ease(Tween.EASE_OUT)
+						tween.tween_property(t, "position", Vector2(t.position.x, target_y), 0.18)
+						fall_tweens.append(tween)
+						write_r -= 1
+				for r in range(write_r, -1, -1):
+					var new_type = rng.randi_range(0, TILE_TYPES - 1)
+					var new_tile = spawn_tile(r, c, new_type)
+					new_tile.position = Vector2(c * 64, -64)
+					grid[r][c] = new_tile
+					var target_y2 = r * 64
+					var tween2 = create_tween()
+					tween2.set_trans(Tween.TRANS_SINE)
+					tween2.set_ease(Tween.EASE_OUT)
+					tween2.tween_property(new_tile, "position", Vector2(c * 64, target_y2), 0.22)
+					fall_tweens.append(tween2)
+			if fill_mode == FillMode.SideFall:
+				_side_fall_pass(fall_tweens)
+
+	if fall_tweens.size() > 0:
+		await fall_tweens[0].finished
+
+	set_state(BoardState.Fill)
+
+	var new_result = find_matches_with_groups()
+	if not new_result["matches"].is_empty():
+		await handle_matches_and_refill(new_result)
+	else:
+		set_state(BoardState.WaitForInput)
+
 func _side_fall_pass(fall_tweens: Array) -> void:
 	# Allow diagonal pulls into gaps for SideFall mode
 	var changed := true
@@ -713,6 +838,91 @@ func empty_cells() -> Array[Vector2i]:
 			if grid[r][c] == null:
 				out.append(Vector2i(c, r))
 	return out
+
+func _setup_debug_ui() -> void:
+	var ui_container = Control.new()
+	ui_container.anchor_left = 1.0
+	ui_container.anchor_top = 0.0
+	ui_container.offset_left = -250
+	ui_container.offset_right = 0
+	ui_container.offset_bottom = 800
+	add_child(ui_container)
+
+	var vbox = VBoxContainer.new()
+	vbox.anchor_left = 0.0
+	vbox.anchor_top = 0.0
+	vbox.anchor_right = 1.0
+	vbox.anchor_bottom = 1.0
+	ui_container.add_child(vbox)
+
+	var title = Label.new()
+	title.text = "DEBUG BOOSTERS"
+	title.custom_minimum_size = Vector2(250, 30)
+	vbox.add_child(title)
+
+	var boosters = [
+		["Color Bomb", "color_bomb"],
+		["Striped", "striped"],
+		["Bomb", "bomb"],
+		["Seeker", "seeker"],
+		["Roller", "roller"],
+		["Hammer", "hammer"],
+		["Free Swap", "free_swap"],
+		["Brush", "brush"],
+		["UFO", "ufo"]
+	]
+
+	for booster_name in boosters:
+		var btn = Button.new()
+		btn.text = booster_name[0]
+		btn.custom_minimum_size = Vector2(250, 40)
+		btn.pressed.connect(_on_debug_booster_pressed.bindv([booster_name[1]]))
+		vbox.add_child(btn)
+
+	debug_ui = ui_container
+
+func _on_debug_booster_pressed(booster_type: String) -> void:
+	if booster_in_progress:
+		print("DEBUG: Booster already running; wait until it finishes.")
+		return
+	selected_booster = booster_type
+	if selected_booster_tile == null:
+		print("DEBUG: No tile selected for booster. Click a tile first!")
+		return
+
+	booster_in_progress = true
+	var tile_ref: Node = selected_booster_tile
+	var row: int = tile_ref.row
+	var col: int = tile_ref.col
+	print("Booster selected: %s on tile [%d, %d]" % [booster_type, row, col])
+	await _trigger_debug_booster(tile_ref, booster_type, row, col)
+
+	if is_instance_valid(tile_ref):
+		var tween = create_tween()
+		tween.set_trans(Tween.TRANS_SINE)
+		tween.set_ease(Tween.EASE_OUT)
+		tween.tween_property(tile_ref, "scale", Vector2(1.0, 1.0), 0.15)
+
+	selected_booster_tile = null
+	selected_booster = ""
+	booster_in_progress = false
+
+func _trigger_debug_booster(tile: Node, booster_type: String, tile_row: int, tile_col: int) -> void:
+	var booster_enum = Booster.BoosterType.Striped
+	match booster_type:
+		"color_bomb": booster_enum = Booster.BoosterType.ColorBomb
+		"striped": booster_enum = Booster.BoosterType.Striped
+		"bomb": booster_enum = Booster.BoosterType.Bomb
+		"seeker": booster_enum = Booster.BoosterType.Seeker
+		"roller": booster_enum = Booster.BoosterType.Roller
+		"hammer": booster_enum = Booster.BoosterType.Hammer
+		"free_swap": booster_enum = Booster.BoosterType.FreeSwap
+		"brush": booster_enum = Booster.BoosterType.Brush
+		"ufo": booster_enum = Booster.BoosterType.UFO
+	
+	var booster = Booster.new(booster_enum, tile, self)
+	await booster.trigger()
+	print("Booster triggered: %s on tile at [%d, %d]" % [booster_type, tile_row, tile_col])
 
 func _make_placeholder_texture(type_idx: int) -> ImageTexture:
 	# Generate a 64x64 procedural tile texture

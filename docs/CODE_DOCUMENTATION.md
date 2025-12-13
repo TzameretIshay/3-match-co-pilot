@@ -16,7 +16,7 @@ Main.tscn (Root Scene)
 │   ├── Tiles (Node2D) - Container for all tile instances
 │   │   ├── Tile instances (instantiated at runtime from Tile.tscn)
 └── UI (CanvasLayer) - UI.tscn instance
-    ├── ScoreLabel, MovesLabel, RestartButton (controlled by UI.gd)
+	├── ScoreLabel, MovesLabel, RestartButton (controlled by UI.gd)
 ```
 
 ### Script Hierarchy
@@ -90,8 +90,8 @@ var selected_tile: Node = null         # Currently selected tile (for UI feedbac
 - Returns:
   ```gdscript
   {
-    "matches": [[r,c], [r,c], ...],        # All matched tile positions
-    "groups": {tile: {type, length}, ...}  # Run metadata for power-ups
+	"matches": [[r,c], [r,c], ...],        # All matched tile positions
+	"groups": {tile: {type, length}, ...}  # Run metadata for power-ups
   }
   ```
 - **Horizontal scan**: For each row, find consecutive tiles of same type (3+)
@@ -211,10 +211,10 @@ Connects Grid signals to UI labels. Signal-driven architecture means no polling 
 
 ```gdscript
 func _ready() -> void:
-    # 1. Find Grid node in scene tree
-    # 2. Connect to "score_changed" signal → _on_score_changed()
-    # 3. Connect to "moves_changed" signal → _on_moves_changed()
-    # 4. Connect RestartButton.pressed → grid.reset_game()
+	# 1. Find Grid node in scene tree
+	# 2. Connect to "score_changed" signal → _on_score_changed()
+	# 3. Connect to "moves_changed" signal → _on_moves_changed()
+	# 4. Connect RestartButton.pressed → grid.reset_game()
 ```
 
 **Signal Handlers:**
@@ -228,47 +228,47 @@ func _ready() -> void:
 ### Initialization
 ```
 Scene loads → _ready() → init_grid()
-                    ↓
-           Spawn 8×8 grid with random tiles
-                    ↓
-           While matches exist, replace tiles
-                    ↓
-           Game ready (no matches on board)
+					↓
+		   Spawn 8×8 grid with random tiles
+					↓
+		   While matches exist, replace tiles
+					↓
+		   Game ready (no matches on board)
 ```
 
 ### Gameplay Loop
 ```
 Player clicks Tile A → _on_tile_clicked()
-                    ↓
-         Tile A selected (scale 1.2×)
-                    ↓
+					↓
+		 Tile A selected (scale 1.2×)
+					↓
 Player clicks Tile B → _on_tile_clicked()
-                    ↓
-         Distance check: is B adjacent to A?
-                    ↓
-         YES: try_swap(A, B) → animate_swap()
-                    ↓
-         Matches? NO: revert swap
-                    ↓
-         Matches? YES: handle_matches_and_refill()
+					↓
+		 Distance check: is B adjacent to A?
+					↓
+		 YES: try_swap(A, B) → animate_swap()
+					↓
+		 Matches? NO: revert swap
+					↓
+		 Matches? YES: handle_matches_and_refill()
 ```
 
 ### Match Clearing Flow
 ```
 find_matches_with_groups()
-           ↓
+		   ↓
 Build clear list + check power-ups
-           ↓
+		   ↓
 Pop animation (0.12s)
-           ↓
+		   ↓
 Remove tiles + update score
-           ↓
+		   ↓
 Gravity + Refill (animated)
-           ↓
+		   ↓
 Check for chain reactions
-           ↓
+		   ↓
 More matches? YES → repeat
-           ↓
+		   ↓
 More matches? NO → return to gameplay
 ```
 

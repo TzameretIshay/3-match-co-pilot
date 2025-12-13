@@ -6,19 +6,19 @@
 
 ```gdscript
 func find_matches_with_groups() -> Dictionary:
-    # Scan each row for consecutive matching tiles
-    for r in range(rows):
-        var c = 0
-        while c < cols:
-            var run_start = c
-            var run_length = 1
-            
-            # Count how many consecutive same-type tiles
-            while c + 1 < cols and grid[r][c].tile_type == grid[r][c + 1].tile_type:
-                c += 1
-                run_length += 1
-            
-            # If 3+, it's a match!
+	# Scan each row for consecutive matching tiles
+	for r in range(rows):
+		var c = 0
+		while c < cols:
+			var run_start = c
+			var run_length = 1
+			
+			# Count how many consecutive same-type tiles
+			while c + 1 < cols and grid[r][c].tile_type == grid[r][c + 1].tile_type:
+				c += 1
+				run_length += 1
+			
+			# If 3+, it's a match!
             if run_length >= 3:
                 for i in range(run_start, c + 1):
                     matches.append([r, i])
