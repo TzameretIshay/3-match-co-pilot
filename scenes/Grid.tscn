@@ -1,0 +1,13 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource path="res://scripts/Grid.gd" type="Script" id=1]
+[ext_resource path="res://scenes/Tile.tscn" type="PackedScene" id=2]
+
+[node name="Grid" type="Node2D"]
+script = ExtResource( 1 )
+position = Vector2( 0, 0 )
+
+[node name="Tiles" type="Node2D" parent="."]
+
+[node name="TileScene" type="PackedScene" parent="."]
+source = ExtResource( 2 )
