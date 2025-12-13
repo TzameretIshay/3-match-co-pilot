@@ -57,6 +57,7 @@ enum BoardState {
 @export var board_config: Match3BoardConfig
 @export var debug_mode: bool = false
 @export var debug_ui_visible: bool = false
+@export var goal_score: int = 1000  # Score needed to win
 
 # ===== GAME CONSTANTS =====
 const TILE_TYPES: int = 6             # 6 different tile colors (0-5)
@@ -73,6 +74,7 @@ var _selected_pos: Vector2i = Vector2i(-1, -1) # Click-mode selection anchor
 # ===== ASSET & ANIMATION VARIABLES =====
 var tile_scene: PackedScene            # Tile.tscn template for instantiation
 var auto_textures := {}                # Cache for generated placeholder textures
+var particle_scene: PackedScene        # Match particle effect template
 
 var default_rules := [
 	Match3BoardConfig.Match3Rule.new("Horizontal", 4, false, 1, "line"),
@@ -85,12 +87,18 @@ var default_rules := [
 
 var audio_player: AudioStreamPlayer
 var audio_generator: AudioStreamGenerator
+var sfx_match: AudioStreamPlayer
+var sfx_swap: AudioStreamPlayer
+var sfx_booster: AudioStreamPlayer
 
 var debug_ui: Node = null
 var selected_booster: String = ""
 var selected_booster_tile: Node = null
 var booster_in_progress: bool = false
 var run_boosters: Array = []
+var booster_inventory: Dictionary = {}  # {"booster_key": uses_remaining}
+var booster_ui: Node = null  # In-game booster panel
+var game_over_scene: PackedScene
 
 func set_state(next: BoardState) -> void:
 	if current_state == next:
@@ -114,6 +122,8 @@ func _ready() -> void:
 	
 	# Load Tile.tscn template scene for instantiation
 	tile_scene = load("res://scenes/Tile.tscn")
+	particle_scene = load("res://scenes/MatchParticles.tscn")
+	game_over_scene = load("res://scenes/GameOverScreen.tscn")
 	
 	# Setup audio (currently unused, but ready for SFX)
 	audio_generator = AudioStreamGenerator.new()
@@ -121,6 +131,14 @@ func _ready() -> void:
 	audio_player = AudioStreamPlayer.new()
 	audio_player.stream = audio_generator
 	add_child(audio_player)
+	
+	# Setup sound effect players
+	sfx_match = AudioStreamPlayer.new()
+	sfx_swap = AudioStreamPlayer.new()
+	sfx_booster = AudioStreamPlayer.new()
+	add_child(sfx_match)
+	add_child(sfx_swap)
+	add_child(sfx_booster)
 	
 	# Spawn initial 8x8 grid ensuring no immediate matches
 	init_grid()
@@ -318,7 +336,53 @@ func find_matches_with_groups() -> Dictionary:
 		dedup[key] = match
 	matches = dedup.values()
 
+	# ===== EXPAND MATCHES WITH ADJACENT SAME-COLOR TILES =====
+	matches = _expand_matches_with_adjacent(matches)
+
 	return {"matches": matches, "groups": groups, "sequences": sequences}
+
+func _expand_matches_with_adjacent(initial_matches: Array) -> Array:
+	# Expand matched tiles to include adjacent same-color tiles using flood-fill
+	var matched_set := {}
+	var to_process := []
+	
+	# Initialize with all matched positions
+	for match_pos in initial_matches:
+		var key = "%d_%d" % [match_pos[0], match_pos[1]]
+		matched_set[key] = match_pos
+		to_process.append(match_pos)
+	
+	# Flood-fill: check all 4 directions for same-color neighbors
+	while to_process.size() > 0:
+		var current = to_process.pop_back()
+		var r = current[0]
+		var c = current[1]
+		
+		if r < 0 or r >= rows or c < 0 or c >= cols:
+			continue
+		if grid[r][c] == null:
+			continue
+		
+		var current_color = grid[r][c].tile_type
+		var directions = [[0, 1], [0, -1], [1, 0], [-1, 0]]  # right, left, down, up
+		
+		for dir in directions:
+			var nr = r + dir[0]
+			var nc = c + dir[1]
+			var key = "%d_%d" % [nr, nc]
+			
+			if nr < 0 or nr >= rows or nc < 0 or nc >= cols:
+				continue
+			if matched_set.has(key):
+				continue
+			if grid[nr][nc] == null:
+				continue
+			
+			if grid[nr][nc].tile_type == current_color:
+				matched_set[key] = [nr, nc]
+				to_process.append([nr, nc])
+	
+	return matched_set.values()
 
 func _on_tile_clicked(tile: Node) -> void:
 	# Handle tile selection and swapping based on selection_mode and swap_mode
@@ -493,6 +557,7 @@ func animate_swap(tile_a: Node, tile_b: Node) -> void:
 	tween.set_ease(Tween.EASE_IN_OUT)
 	tween.tween_property(tile_a, "position", target_a, 0.18)
 	tween.tween_property(tile_b, "position", target_b, 0.18)
+	_play_swap_sound()
 	await tween.finished
 
 func handle_matches_and_refill(result: Dictionary) -> void:
@@ -521,6 +586,7 @@ func handle_matches_and_refill(result: Dictionary) -> void:
 		var tc = tile_data[1]
 		var t = grid[tr][tc]
 		if t:
+			_spawn_match_particles(t.position, t.tile_type)
 			var tween = create_tween()
 			tween.set_trans(Tween.TRANS_SINE)
 			tween.set_ease(Tween.EASE_IN)
@@ -542,6 +608,7 @@ func handle_matches_and_refill(result: Dictionary) -> void:
 	# Update score
 	score += to_clear.size() * 10
 	emit_signal("score_changed", score)
+	_play_match_sound(to_clear.size())
 
 	# Gravity & refill according to fill_mode
 	set_state(BoardState.Fall)
@@ -597,6 +664,7 @@ func handle_matches_and_refill(result: Dictionary) -> void:
 		await handle_matches_and_refill(new_result)
 	else:
 		set_state(BoardState.WaitForInput)
+		_check_game_over()
 
 func apply_booster_clear(destroy_list: Array) -> void:
 	# Clear arbitrary positions (from boosters), then apply gravity/refill and cascades
@@ -691,6 +759,7 @@ func apply_booster_clear(destroy_list: Array) -> void:
 		await handle_matches_and_refill(new_result)
 	else:
 		set_state(BoardState.WaitForInput)
+		_check_game_over()
 
 func _side_fall_pass(fall_tweens: Array) -> void:
 	# Allow diagonal pulls into gaps for SideFall mode
@@ -840,6 +909,61 @@ func empty_cells() -> Array[Vector2i]:
 				out.append(Vector2i(c, r))
 	return out
 
+func _setup_booster_ui() -> void:
+	# Remove old booster UI if it exists
+	if booster_ui != null:
+		booster_ui.queue_free()
+		booster_ui = null
+	
+	if run_boosters.is_empty():
+		return
+	
+	var ui_container = Control.new()
+	ui_container.anchor_left = 1.0
+	ui_container.anchor_top = 0.0
+	ui_container.offset_left = -200
+	ui_container.offset_right = 0
+	ui_container.offset_bottom = 400
+	add_child(ui_container)
+
+	var vbox = VBoxContainer.new()
+	vbox.anchor_left = 0.0
+	vbox.anchor_top = 0.0
+	vbox.anchor_right = 1.0
+	vbox.anchor_bottom = 1.0
+	ui_container.add_child(vbox)
+
+	var title = Label.new()
+	title.text = "BOOSTERS"
+	title.custom_minimum_size = Vector2(200, 30)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(title)
+
+	var booster_labels = {
+		"color_bomb": "Color Bomb",
+		"striped": "Striped",
+		"bomb": "Bomb",
+		"seeker": "Seeker",
+		"roller": "Roller",
+		"hammer": "Hammer",
+		"free_swap": "Free Swap",
+		"brush": "Brush",
+		"ufo": "UFO"
+	}
+
+	for booster_key in run_boosters:
+		var btn = Button.new()
+		var label = booster_labels.get(booster_key, booster_key)
+		var uses = booster_inventory.get(booster_key, 0)
+		btn.text = "%s (%d)" % [label, uses]
+		btn.name = "btn_" + booster_key
+		btn.custom_minimum_size = Vector2(200, 50)
+		btn.disabled = uses <= 0
+		btn.pressed.connect(_on_booster_ui_pressed.bind(booster_key))
+		vbox.add_child(btn)
+
+	booster_ui = ui_container
+
 func _setup_debug_ui() -> void:
 	var ui_container = Control.new()
 	ui_container.anchor_left = 1.0
@@ -881,6 +1005,92 @@ func _setup_debug_ui() -> void:
 		vbox.add_child(btn)
 
 	debug_ui = ui_container
+
+func _on_booster_ui_pressed(booster_key: String) -> void:
+	if booster_in_progress:
+		print("Booster already in use, wait...")
+		return
+	if current_state != BoardState.WaitForInput:
+		print("Cannot use booster during board animation")
+		return
+	
+	var uses = booster_inventory.get(booster_key, 0)
+	if uses <= 0:
+		print("No uses remaining for %s" % booster_key)
+		return
+	
+	# Consume one use
+	booster_inventory[booster_key] = uses - 1
+	_update_booster_ui()
+	
+	# Trigger booster at a random tile (or first valid tile)
+	var target_tile = _find_valid_booster_target()
+	if target_tile == null:
+		print("No valid target for booster")
+		return
+	
+	booster_in_progress = true
+	await _trigger_booster_on_tile(target_tile, booster_key)
+	booster_in_progress = false
+
+func _find_valid_booster_target() -> Node:
+	# Find first non-null tile for booster application
+	for r in range(rows):
+		for c in range(cols):
+			if grid[r][c] != null:
+				return grid[r][c]
+	return null
+
+func _update_booster_ui() -> void:
+	if booster_ui == null:
+		return
+	var booster_labels = {
+		"color_bomb": "Color Bomb",
+		"striped": "Striped",
+		"bomb": "Bomb",
+		"seeker": "Seeker",
+		"roller": "Roller",
+		"hammer": "Hammer",
+		"free_swap": "Free Swap",
+		"brush": "Brush",
+		"ufo": "UFO"
+	}
+	# Find VBoxContainer child
+	var vbox = null
+	for child in booster_ui.get_children():
+		if child is VBoxContainer:
+			vbox = child
+			break
+	
+	if vbox == null:
+		return
+	
+	# Update button texts for each booster
+	for booster_key in run_boosters:
+		var btn = vbox.get_node_or_null("btn_" + booster_key)
+		if btn:
+			var label = booster_labels.get(booster_key, booster_key)
+			var uses = booster_inventory.get(booster_key, 0)
+			btn.text = "%s (%d)" % [label, uses]
+			btn.disabled = uses <= 0
+
+func _trigger_booster_on_tile(tile: Node, booster_key: String) -> void:
+	var booster_enum = Booster.BoosterType.Striped
+	match booster_key:
+		"color_bomb": booster_enum = Booster.BoosterType.ColorBomb
+		"striped": booster_enum = Booster.BoosterType.Striped
+		"bomb": booster_enum = Booster.BoosterType.Bomb
+		"seeker": booster_enum = Booster.BoosterType.Seeker
+		"roller": booster_enum = Booster.BoosterType.Roller
+		"hammer": booster_enum = Booster.BoosterType.Hammer
+		"free_swap": booster_enum = Booster.BoosterType.FreeSwap
+		"brush": booster_enum = Booster.BoosterType.Brush
+		"ufo": booster_enum = Booster.BoosterType.UFO
+	
+	var booster = Booster.new(booster_enum, tile, self)
+	_play_booster_sound()
+	await booster.trigger()
+	print("Booster %s activated at [%d, %d]" % [booster_key, tile.row, tile.col])
 
 func _on_debug_booster_pressed(booster_type: String) -> void:
 	if booster_in_progress:
@@ -972,7 +1182,12 @@ func set_run_boosters(choices: Array) -> void:
 	run_boosters = choices.duplicate()
 	if run_boosters.size() > 3:
 		run_boosters.resize(3)
+	# Initialize inventory: 3 uses per booster
+	booster_inventory.clear()
+	for booster_key in run_boosters:
+		booster_inventory[booster_key] = 3
 	print("Selected boosters for run: %s" % [run_boosters])
+	_setup_booster_ui()
 
 func can_swap_positions(a: Vector2i, b: Vector2i) -> bool:
 	if not _in_bounds(a) or not _in_bounds(b):
@@ -1004,3 +1219,68 @@ func can_swap_positions(a: Vector2i, b: Vector2i) -> bool:
 
 func _in_bounds(p: Vector2i) -> bool:
 	return p.x >= 0 and p.y >= 0 and p.x < cols and p.y < rows
+
+func _spawn_match_particles(pos: Vector2, tile_type: int) -> void:
+	if particle_scene == null:
+		return
+	var particles = particle_scene.instantiate()
+	particles.position = pos
+	# Color particles based on tile type
+	var colors = [
+		Color.RED, Color.GREEN, Color.BLUE, Color.YELLOW, Color.MAGENTA, Color.CYAN
+	]
+	if tile_type >= 0 and tile_type < colors.size():
+		particles.color = colors[tile_type]
+	$Tiles.add_child(particles)
+	particles.emitting = true
+	# Auto-delete after lifetime
+	await get_tree().create_timer(particles.lifetime + 0.1).timeout
+	if is_instance_valid(particles):
+		particles.queue_free()
+
+func _play_match_sound(match_size: int) -> void:
+	if sfx_match:
+		var pitch = 1.0 + (match_size - 3) * 0.1
+		sfx_match.pitch_scale = clamp(pitch, 0.8, 2.0)
+		if not sfx_match.playing:
+			sfx_match.play()
+
+func _play_swap_sound() -> void:
+	if sfx_swap and not sfx_swap.playing:
+		sfx_swap.pitch_scale = 1.2
+		sfx_swap.play()
+
+func _play_booster_sound() -> void:
+	if sfx_booster and not sfx_booster.playing:
+		sfx_booster.pitch_scale = 0.9
+		sfx_booster.play()
+
+func _check_game_over() -> void:
+	var is_victory = score >= goal_score
+	var is_defeat = moves_left <= 0
+	
+	if is_victory or is_defeat:
+		_show_game_over_screen(is_victory)
+
+func _show_game_over_screen(victory: bool) -> void:
+	if game_over_scene == null:
+		return
+	
+	var game_over = game_over_scene.instantiate()
+	game_over.is_victory = victory
+	game_over.final_score = score
+	game_over.goal_score = goal_score
+	game_over.moves_used = moves_limit - moves_left
+	game_over.moves_total = moves_limit
+	get_parent().add_child(game_over)
+	game_over.restart_requested.connect(_on_restart_requested)
+	game_over.next_level_requested.connect(_on_next_level_requested)
+
+func _on_restart_requested() -> void:
+	reset_game()
+
+func _on_next_level_requested() -> void:
+	# Increase difficulty for next level
+	goal_score = int(goal_score * 1.5)
+	moves_limit = max(20, moves_limit - 2)
+	reset_game()

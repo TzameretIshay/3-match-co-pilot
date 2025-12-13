@@ -1,0 +1,50 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/GameOverScreen.gd" id="1"]
+
+[node name="GameOverScreen" type="CanvasLayer"]
+script = ExtResource("1")
+
+[node name="Panel" type="Panel" parent="."]
+anchor_left = 0.3
+anchor_top = 0.3
+anchor_right = 0.7
+anchor_bottom = 0.7
+
+[node name="VBox" type="VBoxContainer" parent="Panel"]
+anchor_left = 0.0
+anchor_top = 0.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+margin_left = 20.0
+margin_top = 20.0
+margin_right = -20.0
+margin_bottom = -20.0
+
+[node name="TitleLabel" type="Label" parent="Panel/VBox"]
+text = "GAME OVER"
+horizontal_alignment = 1
+custom_minimum_size = Vector2(0, 60)
+
+[node name="MessageLabel" type="Label" parent="Panel/VBox"]
+text = "No moves left"
+horizontal_alignment = 1
+custom_minimum_size = Vector2(0, 40)
+
+[node name="StatsLabel" type="Label" parent="Panel/VBox"]
+text = "Score: 0 / 1000 (0%)
+Moves: 0 / 30"
+horizontal_alignment = 1
+custom_minimum_size = Vector2(0, 60)
+
+[node name="RestartButton" type="Button" parent="Panel/VBox"]
+text = "Restart"
+custom_minimum_size = Vector2(0, 50)
+
+[node name="NextButton" type="Button" parent="Panel/VBox"]
+text = "Next Level"
+custom_minimum_size = Vector2(0, 50)
+visible = false
+
+[connection signal="pressed" from="Panel/VBox/RestartButton" to="." method="_on_RestartButton_pressed"]
+[connection signal="pressed" from="Panel/VBox/NextButton" to="." method="_on_NextButton_pressed"]

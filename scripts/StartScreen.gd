@@ -28,7 +28,6 @@ func _ready() -> void:
 		cb.toggled.connect(_on_booster_toggled.bind(def["key"]))
 		list_node.add_child(cb)
 	_update_counter()
-	$Panel/VBox/StartButton.disabled = true
 
 func _on_booster_toggled(pressed: bool, key: String) -> void:
 	if pressed:
@@ -46,7 +45,6 @@ func _update_counter() -> void:
 	var count = _selected.size()
 	var counter: Label = $Panel/VBox/CounterLabel
 	counter.text = "Selected: %d / %d" % [count, max_selection]
-	$Panel/VBox/StartButton.disabled = count == 0
 
 func _on_StartButton_pressed() -> void:
 	var chosen = _selected.keys()
