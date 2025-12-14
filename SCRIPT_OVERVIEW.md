@@ -1,4 +1,4 @@
-# Match-3 Game: Complete Code Overview
+# Match-3 CoPilot: Complete Code Overview
 
 ## 📚 Documentation Files
 
@@ -29,21 +29,26 @@ All detailed documentation is in the `/docs` folder:
 
 ---
 
-## 🎮 Three Core Scripts
+## 🎮 Eleven Core Scripts
 
-### **Grid.gd** (400 lines) - Game Engine
+### **Grid.gd** (1700+ lines) - Game Engine
 The heart of the Match-3 game. Contains all game logic:
 
 **Key Responsibilities:**
-- Grid initialization (8×8 board, random tiles)
-- Tile spawning and texture loading (PNG > SVG > Procedural)
-- Match detection (horizontal & vertical runs of 3+)
+- Grid initialization (8×8 board, sea-themed tiles)
+- Tile spawning from sprite sheet (36 sea creatures sliced from 6×6 grid)
+- Advanced match detection (horizontal, vertical, diagonal, T-shape, L-shape, square 2×2)
 - Tile swapping with undo if no match
-- Clear animation, gravity, and refill
-- Power-up generation (4+ matches = clear row/column)
-- Chain reaction detection (automatic cascading)
-- Score and moves tracking
+- Clear animation, gravity, and refill with chain reactions
+- Booster awarding system (4+ matches earn boosters)
+- On-board booster collection with clickable popups
+- Booster inventory management with UI panel
+- Booster activation and effects
+- Score, moves, and level tracking
 - Signal emission for UI updates
+- Level progression with difficulty scaling
+- Game over detection (victory/defeat)
+- Persistent high score integration
 
 **19 Functions:**
 1. `_ready()` - Initialize game
@@ -230,29 +235,156 @@ Player clicks Restart button
 
 ---
 
-## 📖 How to Read the Code
+### **UI.gd** (50+ lines) - User Interface Controller
+Manages HUD display with signal connections:
 
-1. **Start with Grid.gd overview** (comments at top)
-2. **Read `_ready()` and `init_grid()`** to understand initialization
-3. **Read `_on_tile_clicked()`** to understand selection system
-4. **Read `animate_swap()`** to understand swapping
-5. **Read `handle_matches_and_refill()`** - This is the main loop with 7 steps:
-   - Clear list building
-   - Power-up expansion
-   - Pop animation
-   - Tile removal
-   - Score update
-   - Gravity & refill
-   - Chain reaction check
-6. **Read `find_matches_with_groups()`** to understand match detection
-7. **Read Tile.gd** - Simple data container
-8. **Read UI.gd** - Signal connection and updates
+**Key Responsibilities:**
+- Score, moves, and level display
+- High score and max level display (top-right corner)
+- Connects to Grid signals for updates
+- Connects to PlayerStats singleton for persistent data
+- Restart button handler
+
+### **StartScreen.gd** (120 lines) - Initial Booster Selection
+Overlay screen for starting the game:
+
+**Key Responsibilities:**
+- Display 9 booster options with descriptions
+- Allow selection of up to 3 boosters
+- Pass selected boosters to Grid
+- Show/hide on game start
+
+### **NextLevelBoosterScreen.gd** (110 lines) - Level Up Booster Selection
+Similar to StartScreen but for mid-game progression:
+
+**Key Responsibilities:**
+- Appears after level victory
+- Allows selection of 3 additional boosters
+- Adds to existing booster inventory
+- Continues to next level after selection
+
+### **GameOverScreen.gd** (80 lines) - Victory/Defeat Screen
+End-of-level results screen:
+
+**Key Responsibilities:**
+- Display victory or defeat message
+- Show final score, goal, and moves used
+- Restart button (restarts entire game)
+- Next Level button (only on victory)
+- Auto-cleanup via "game_over_screen" group
+
+### **Booster.gd** (200+ lines) - Booster Effects Implementation
+Implements all 9 booster types:
+
+**Booster Types:**
+- Color Bomb: Destroys all tiles of same color
+- Striped: Clears entire row and column
+- Bomb: Destroys 3×3 area
+- Seeker: Targets and destroys specific tile
+- Roller: Converts row/column to striped pieces
+- Hammer: Destroys single tile
+- Free Swap: Allows any two tiles to swap
+- Brush: Changes tile color to match adjacent
+- UFO: Transforms random tiles to bombs
+
+### **Match3BoardConfig.gd** (150 lines) - Configuration System
+Board rules and configuration:
+
+**Key Responsibilities:**
+- Define match rules (H, V, T, L, Square patterns)
+- Configure board behavior
+- Extensible rule system
+
+### **BackgroundManager.gd** (70 lines) - Background Handler
+Manages sea-themed backgrounds:
+
+**Key Responsibilities:**
+- Loads and slices 3×2 sprite sheet (6 backgrounds)
+- Cycles backgrounds based on level
+- Scales to fit window size (with 1% overscale to prevent seams)
+- Connects to Grid's level_changed signal
+
+### **MusicPlayer.gd** (15 lines) - Music Loop Handler
+Simple script for looping background music:
+
+**Key Responsibilities:**
+- Handles finished signal
+- Restarts music for seamless looping
+
+### **PlayerStats.gd** (60 lines) - Persistent Statistics
+Autoload singleton for save data:
+
+**Key Responsibilities:**
+- Tracks high score and max level reached
+- Saves to ConfigFile (user://player_stats.cfg)
+- Emits signals on new records
+- Loads on game start
+
+### **Tile.gd** (30 lines) - Individual Tile
+Simple data container for each tile (unchanged from original)
 
 ---
 
-## 🔧 Configuration
+## 🧪 Updated Test Checklist
 
-All tweakable values:
+### Core Gameplay
+- [ ] Board initializes with sea creature tiles (no matches)
+- [ ] Click tile → scales up
+- [ ] Click adjacent → swaps with animation
+- [ ] No match → reverts swap
+- [ ] Match-3+ → clears with particles
+- [ ] Diagonal, T-shape, L-shape matches work
+- [ ] Square 2×2 matches work
+- [ ] Gravity works (tiles fall down)
+- [ ] New tiles spawn from top
+- [ ] Chain reactions trigger automatically
+- [ ] Score increases (10 pts/tile)
+- [ ] Moves decrease per swap
+- [ ] Goal score reached → Victory screen
+- [ ] Moves = 0 → Defeat screen
+
+### Booster System
+- [ ] 4+ match → Booster popup appears on board
+- [ ] Popup is clickable and collectible
+- [ ] Popup disappears after 10 seconds
+- [ ] Booster added to inventory panel (right side)
+- [ ] Booster UI shows uses remaining
+- [ ] Clicking booster button activates it
+- [ ] Each booster effect works correctly
+- [ ] Booster inventory persists across levels
+
+### Level Progression
+- [ ] Start screen shows 9 boosters
+- [ ] Can select exactly 3 starting boosters
+- [ ] Start button begins game
+- [ ] Victory shows "Next Level" button
+- [ ] Next Level shows booster selection (3 more)
+- [ ] Boosters accumulate (3 + 3 + 3...)
+- [ ] Goal score increases 1.5× per level
+- [ ] Moves decrease by 2 per level
+- [ ] Background changes each level (cycles through 6)
+- [ ] Level counter updates in UI
+
+### Persistent Stats
+- [ ] High score displays at top-right
+- [ ] Max level displays at top-right
+- [ ] High score updates on new record
+- [ ] Max level updates on level advancement
+- [ ] Stats persist after closing game
+
+### Visual & Audio
+- [ ] Sea creatures display from sprite sheet
+- [ ] Backgrounds scale to window
+- [ ] Start screen shows background image
+- [ ] Booster icons display correctly (9 unique designs)
+- [ ] Background music plays and loops
+- [ ] Match/swap/booster sounds play
+
+---
+
+## 🔧 Updated Configuration
+
+All tweakable values in Grid.gd:
 
 ```gdscript
 # Grid size
@@ -261,95 +393,87 @@ All tweakable values:
 
 # Gameplay
 @export var moves_limit: int = 30
-const TILE_TYPES: int = 6  # Colors
+@export var goal_score: int = 1000
+const TILE_TYPES: int = 6  # Sea creature types
 
-# Animation timings
-0.18s - Swap animation
-0.12s - Pop animation
-0.18s - Gravity fall
-0.22s - Refill spawn
-0.15s - Tile selection
+# Booster popup
+10 seconds - Popup timeout
+0.6 scale - Icon display size
 
-# Scoring
-10 points per tile cleared
+# Level scaling (in _on_next_level_requested)
+goal_score *= 1.5
+moves_limit -= 2 (minimum 20)
 ```
 
 ---
 
-## 🎨 Asset System
+## 🎨 Updated Asset System
 
-**Texture Loading Priority:**
-1. Check for PNG: `res://assets/tile_0.png` through `tile_5.png`
-2. Check for SVG: `res://assets/tile_0.svg` through `tile_5.svg`
-3. Generate procedurally: 64×64 colored square with circle
-4. Cache generated textures for reuse
+**Sprite Sheet Loading:**
+1. Load seatheme sprite sheet (6×6 grid, 36 sprites)
+2. Slice into AtlasTextures (165px each, 15px offset)
+3. Scale to 0.388 (64px fit for grid)
+4. Apply to tiles via spawn_tile()
 
-**Result:** Game works perfectly with NO external assets!
+**Background Loading:**
+1. Load sea_backgound.png (3×2 grid, 6 backgrounds)
+2. Slice into AtlasTextures
+3. Scale to window size with 1% overscale
+4. Cycle based on level number
 
----
-
-## 🧪 Quick Test Checklist
-
-- [ ] Board initializes with no matches
-- [ ] Click tile → scales up
-- [ ] Click adjacent → swaps
-- [ ] No match → reverts swap
-- [ ] Match-3+ → clears
-- [ ] Gravity works
-- [ ] New tiles spawn
-- [ ] Chain reactions trigger
-- [ ] Score increases
-- [ ] Moves decrease
-- [ ] Power-ups expand row/column
-- [ ] Restart resets game
+**Booster Icons:**
+1. 9 SVG files (128×128 viewBox)
+2. Translucent navy backgrounds (70% opacity)
+3. Unique designs per booster type
+4. Loaded on-demand for popups
 
 ---
 
-## 🎓 Learning Value
-
-This code teaches:
-- **2D grid-based game logic**
-- **Tile matching algorithms**
-- **Signal-driven architecture**
-- **Tween animation system**
-- **Recursive algorithm** (chain reactions)
-- **Procedural asset generation**
-- **Scene management in Godot**
-- **Clean code practices**
-
----
-
-## 📊 Code Statistics
+## 📊 Updated Code Statistics
 
 | File | Lines | Purpose |
 |------|-------|---------|
-| Grid.gd | 400 | Game engine |
+| Grid.gd | 1700+ | Game engine with boosters |
 | Tile.gd | 30 | Tile data |
-| UI.gd | 27 | UI controller |
-| **Total** | **457** | |
+| UI.gd | 50+ | UI controller + stats |
+| StartScreen.gd | 120 | Initial booster selection |
+| NextLevelBoosterScreen.gd | 110 | Level-up booster selection |
+| GameOverScreen.gd | 80 | Victory/defeat screen |
+| Booster.gd | 200+ | Booster effects |
+| Match3BoardConfig.gd | 150 | Board configuration |
+| BackgroundManager.gd | 70 | Background cycling |
+| MusicPlayer.gd | 15 | Music looping |
+| PlayerStats.gd | 60 | Save system |
+| **Total** | **2,585+** | |
 
-Plus 3000+ lines of documentation! 📚
+Plus extensive documentation! 📚
 
 ---
 
-## ✨ Summary
+## ✨ Updated Summary
 
-You have a **complete, well-commented, fully-functional Match-3 game** with:
+You have a **complete, polished, production-ready Match-3 game** with:
 
-✅ 8×8 grid  
-✅ 6 tile colors  
-✅ Tile swapping (adjacent only)  
-✅ Match detection (3+)  
-✅ Clear with pop animation  
-✅ Gravity simulation  
-✅ Automatic refill  
-✅ Chain reactions  
-✅ Power-ups (match-4+)  
-✅ Score tracking  
-✅ Move limits  
-✅ UI updates  
-✅ Restart functionality  
-✅ Procedural textures  
+✅ 8×8 grid with sea theme  
+✅ 36 unique sea creature sprites  
+✅ 6 rotating backgrounds  
+✅ Advanced match detection (H, V, Diagonal, T, L, Square)  
+✅ 9 unique boosters with effects  
+✅ Booster earning system (4+ matches)  
+✅ On-board booster collection  
+✅ Booster inventory UI  
+✅ Level progression system  
+✅ Difficulty scaling  
+✅ Start screen with booster selection  
+✅ Next level booster selection  
+✅ Game over screens (win/lose)  
+✅ Persistent high score & max level  
+✅ Background music with looping  
+✅ Sound effects  
+✅ Particle effects  
+✅ Custom booster icons  
+✅ Professional UI layout  
+✅ Complete save system  
 ✅ Extensive documentation  
 ✅ Production-ready code  
 
