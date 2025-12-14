@@ -58,8 +58,10 @@ func _scale_to_window() -> void:
 	var scale_x = window_size.x / texture_size.x
 	var scale_y = window_size.y / texture_size.y
 	
-	# Use the larger scale to ensure full coverage
+	# Use the larger scale to ensure full coverage, then overscale slightly
 	var scale_factor = max(scale_x, scale_y)
+	# Overscale by 1% to avoid thin seams from rounding
+	scale_factor *= 1.01
 	
 	scale = Vector2(scale_factor, scale_factor)
 	print("Background scaled to %s (window: %s, texture: %s)" % [scale, window_size, texture_size])

@@ -1,4 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
-  <rect width="64" height="64" fill="#000000"/>
-  <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="Arial, sans-serif" font-size="28" fill="#FFFFFF">U</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <rect width="128" height="128" rx="18" fill="#0b1224"/>
+  <ellipse cx="64" cy="52" rx="40" ry="18" fill="#38bdf8" stroke="#e0f2fe" stroke-width="4"/>
+  <ellipse cx="64" cy="44" rx="18" ry="10" fill="#0ea5e9"/>
+  <circle cx="50" cy="52" r="4" fill="#fef3c7"/>
+  <circle cx="64" cy="52" r="4" fill="#fef3c7"/>
+  <circle cx="78" cy="52" r="4" fill="#fef3c7"/>
+  <path d="M52 60c0 10 6 24 12 34" stroke="#38bdf8" stroke-width="6" stroke-linecap="round" opacity="0.8"/>
+  <path d="M76 60c0 10-6 24-12 34" stroke="#38bdf8" stroke-width="6" stroke-linecap="round" opacity="0.8"/>
+  <path d="M60 72c0 8 2 16 4 24" stroke="#e0f2fe" stroke-width="4" stroke-linecap="round" opacity="0.9"/>
 </svg>

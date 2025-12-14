@@ -1,4 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
-  <rect width="64" height="64" fill="#000000"/>
-  <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="Arial, sans-serif" font-size="28" fill="#FFFFFF">B</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <rect width="128" height="128" rx="18" fill="#0f172a"/>
+  <path d="M82 24c6 6 6 16 0 22L60 68l-16-16 22-22c6-6 16-6 22 0z" fill="#f472b6" stroke="#fdf2f8" stroke-width="3"/>
+  <path d="M56 70l-10 10c-6 6-8 18-2 24 6 6 18 4 24-2l10-10z" fill="#c084fc" opacity="0.9" stroke="#ede9fe" stroke-width="3"/>
+  <path d="M40 96c4 0 8-2 12-6" stroke="#f8fafc" stroke-width="4" stroke-linecap="round" opacity="0.8"/>
+  <circle cx="86" cy="30" r="6" fill="#f8fafc"/>
 </svg>
