@@ -99,6 +99,12 @@ var run_boosters: Array = []
 var booster_inventory: Dictionary = {}  # {"booster_key": uses_remaining}
 var booster_ui: Node = null  # In-game booster panel
 var game_over_scene: PackedScene
+var earned_boosters: Dictionary = {}  # {"booster_key": count}
+var earned_booster_ui: Node = null
+var booster_popup: Node = null  # Temporary popup button for earned booster
+var last_match_tiles: Array = []  # Track tiles from last match for popup placement
+var booster_popup_pos: Vector2i = Vector2i(-1, -1)
+var booster_blockers: Dictionary = {}  # key -> booster node occupying a cell
 
 func set_state(next: BoardState) -> void:
 	if current_state == next:
@@ -142,6 +148,9 @@ func _ready() -> void:
 	
 	# Spawn initial 8x8 grid ensuring no immediate matches
 	init_grid()
+	
+	# Setup earned booster UI
+	_setup_earned_booster_ui()
 	
 	# Setup debug UI if enabled
 	if debug_mode:
@@ -308,6 +317,28 @@ func find_matches_with_groups() -> Dictionary:
 					for cell in diag_cells2:
 						matches.append([cell.y, cell.x])
 					sequences.append({"shape": "Diagonal", "cells": diag_cells2.duplicate(), "length": diag_cells2.size()})
+
+	# ===== SQUARE (2x2) SCAN =====
+	for r in range(rows - 1):
+		for c in range(cols - 1):
+			var a = grid[r][c]
+			if a == null:
+				continue
+			var b = grid[r][c + 1]
+			var d = grid[r + 1][c]
+			var e = grid[r + 1][c + 1]
+			if b == null or d == null or e == null:
+				continue
+			if a.tile_type == b.tile_type and a.tile_type == d.tile_type and a.tile_type == e.tile_type:
+				var square_cells: Array[Vector2i] = [
+					Vector2i(c, r),
+					Vector2i(c + 1, r),
+					Vector2i(c, r + 1),
+					Vector2i(c + 1, r + 1)
+				]
+				for cell in square_cells:
+					matches.append([cell.y, cell.x])
+				sequences.append({"shape": "Square", "cells": square_cells, "length": square_cells.size()})
 
 	# ===== T / L SHAPE DETECTION =====
 	for h_run in horizontal_runs:
@@ -579,6 +610,12 @@ func handle_matches_and_refill(result: Dictionary) -> void:
 	_apply_rules(sequences, to_clear, to_clear_set)
 	consumed_sequences.emit(sequences)
 
+	# Award booster for 4+ match
+	var earned_booster_key := ""
+	if to_clear.size() >= 4:
+		last_match_tiles = to_clear.duplicate()
+		earned_booster_key = _award_booster_for_match(to_clear.size())
+
 	# Pop animation
 	var pop_tweens = []
 	for tile_data in to_clear:
@@ -605,6 +642,10 @@ func handle_matches_and_refill(result: Dictionary) -> void:
 			t.queue_free()
 			grid[tr][tc] = null
 
+	# Place booster tile after tiles are removed (no gravity yet)
+	if earned_booster_key != "":
+		_show_booster_popup(to_clear, earned_booster_key)
+
 	# Update score
 	score += to_clear.size() * 10
 	emit_signal("score_changed", score)
@@ -619,13 +660,16 @@ func handle_matches_and_refill(result: Dictionary) -> void:
 			# No gravity; just refill empties in place
 			for r in range(rows):
 				for c in range(cols):
-					if grid[r][c] == null:
+					if grid[r][c] == null and not _is_blocked_cell(r, c):
 						var new_tile = spawn_tile(r, c, rng.randi_range(0, TILE_TYPES - 1))
 						new_tile.position = Vector2(c * 64, r * 64)
 						grid[r][c] = new_tile
 		FillMode.FallDown, FillMode.SideFall:
 			for c in range(cols):
+				var blocked_rows = _blocked_rows_for_col(c)
 				var write_r = rows - 1
+				while write_r >= 0 and blocked_rows.has(write_r):
+					write_r -= 1
 				for read_r in range(rows - 1, -1, -1):
 					if grid[read_r][c] != null:
 						var t = grid[read_r][c]
@@ -638,18 +682,25 @@ func handle_matches_and_refill(result: Dictionary) -> void:
 						tween.tween_property(t, "position", Vector2(t.position.x, target_y), 0.18)
 						fall_tweens.append(tween)
 						write_r -= 1
+						while write_r >= 0 and blocked_rows.has(write_r):
+							write_r -= 1
 				# Spawn new tiles above
-				for r in range(write_r, -1, -1):
+				var spawn_r = write_r
+				while spawn_r >= 0:
+					if blocked_rows.has(spawn_r):
+						spawn_r -= 1
+						continue
 					var new_type = rng.randi_range(0, TILE_TYPES - 1)
-					var new_tile = spawn_tile(r, c, new_type)
+					var new_tile = spawn_tile(spawn_r, c, new_type)
 					new_tile.position = Vector2(c * 64, -64)
-					grid[r][c] = new_tile
-					var target_y = r * 64
+					grid[spawn_r][c] = new_tile
+					var target_y = spawn_r * 64
 					var tween2 = create_tween()
 					tween2.set_trans(Tween.TRANS_SINE)
 					tween2.set_ease(Tween.EASE_OUT)
 					tween2.tween_property(new_tile, "position", Vector2(c * 64, target_y), 0.22)
 					fall_tweens.append(tween2)
+					spawn_r -= 1
 			if fill_mode == FillMode.SideFall:
 				_side_fall_pass(fall_tweens)
 
@@ -716,13 +767,16 @@ func apply_booster_clear(destroy_list: Array) -> void:
 		FillMode.InPlace:
 			for r in range(rows):
 				for c in range(cols):
-					if grid[r][c] == null:
+					if grid[r][c] == null and not _is_blocked_cell(r, c):
 						var new_tile = spawn_tile(r, c, rng.randi_range(0, TILE_TYPES - 1))
 						new_tile.position = Vector2(c * 64, r * 64)
 						grid[r][c] = new_tile
 		FillMode.FallDown, FillMode.SideFall:
 			for c in range(cols):
+				var blocked_rows = _blocked_rows_for_col(c)
 				var write_r = rows - 1
+				while write_r >= 0 and blocked_rows.has(write_r):
+					write_r -= 1
 				for read_r in range(rows - 1, -1, -1):
 					if grid[read_r][c] != null:
 						var t = grid[read_r][c]
@@ -735,17 +789,24 @@ func apply_booster_clear(destroy_list: Array) -> void:
 						tween.tween_property(t, "position", Vector2(t.position.x, target_y), 0.18)
 						fall_tweens.append(tween)
 						write_r -= 1
-				for r in range(write_r, -1, -1):
+					while write_r >= 0 and blocked_rows.has(write_r):
+						write_r -= 1
+				var spawn_r = write_r
+				while spawn_r >= 0:
+					if blocked_rows.has(spawn_r):
+						spawn_r -= 1
+						continue
 					var new_type = rng.randi_range(0, TILE_TYPES - 1)
-					var new_tile = spawn_tile(r, c, new_type)
+					var new_tile = spawn_tile(spawn_r, c, new_type)
 					new_tile.position = Vector2(c * 64, -64)
-					grid[r][c] = new_tile
-					var target_y2 = r * 64
+					grid[spawn_r][c] = new_tile
+					var target_y2 = spawn_r * 64
 					var tween2 = create_tween()
 					tween2.set_trans(Tween.TRANS_SINE)
 					tween2.set_ease(Tween.EASE_OUT)
 					tween2.tween_property(new_tile, "position", Vector2(c * 64, target_y2), 0.22)
 					fall_tweens.append(tween2)
+					spawn_r -= 1
 			if fill_mode == FillMode.SideFall:
 				_side_fall_pass(fall_tweens)
 
@@ -768,12 +829,14 @@ func _side_fall_pass(fall_tweens: Array) -> void:
 		changed = false
 		for r in range(rows - 1, -1, -1):
 			for c in range(cols):
-				if grid[r][c] != null:
+				if grid[r][c] != null or _is_blocked_cell(r, c):
 					continue
 				var source_row: int = r - 1
 				for offset in [-1, 1]:
 					var source_col: int = c + offset
 					if source_row < 0 or source_col < 0 or source_col >= cols:
+						continue
+					if _is_blocked_cell(source_row, source_col):
 						continue
 					if grid[source_row][source_col] == null:
 						continue
@@ -917,20 +980,20 @@ func _setup_booster_ui() -> void:
 	
 	if run_boosters.is_empty():
 		return
-	
+
+	var ui_width := 200
+	var ui_height := 320
+	var margin_right := 40
+
 	var ui_container = Control.new()
-	ui_container.anchor_left = 1.0
-	ui_container.anchor_top = 0.0
-	ui_container.offset_left = -200
-	ui_container.offset_right = 0
-	ui_container.offset_bottom = 400
+	ui_container.position = Vector2(cols * 64 + margin_right, 0)
+	ui_container.custom_minimum_size = Vector2(ui_width, ui_height)
 	add_child(ui_container)
 
 	var vbox = VBoxContainer.new()
-	vbox.anchor_left = 0.0
-	vbox.anchor_top = 0.0
-	vbox.anchor_right = 1.0
-	vbox.anchor_bottom = 1.0
+	vbox.custom_minimum_size = Vector2(ui_width, ui_height)
+	vbox.size_flags_horizontal = Control.SIZE_FILL
+	vbox.size_flags_vertical = Control.SIZE_FILL
 	ui_container.add_child(vbox)
 
 	var title = Label.new()
@@ -963,6 +1026,207 @@ func _setup_booster_ui() -> void:
 		vbox.add_child(btn)
 
 	booster_ui = ui_container
+
+func _on_booster_ui_pressed(booster_key: String) -> void:
+	if booster_in_progress:
+		print("Booster already in use, wait...")
+		return
+	if current_state != BoardState.WaitForInput:
+		print("Cannot use booster during board animation")
+		return
+	
+	var uses = booster_inventory.get(booster_key, 0)
+	if uses <= 0:
+		print("No uses remaining for %s" % booster_key)
+		return
+	
+	# Consume one use
+	booster_inventory[booster_key] = uses - 1
+	_update_booster_ui()
+	
+	# Trigger booster at a random tile (or first valid tile)
+	var target_tile = _find_valid_booster_target()
+	if target_tile == null:
+		print("No valid target for booster")
+		return
+	
+	booster_in_progress = true
+	await _trigger_booster_on_tile(target_tile, booster_key)
+	booster_in_progress = false
+
+func _find_valid_booster_target() -> Node:
+	# Find first non-null tile for booster application
+	for r in range(rows):
+		for c in range(cols):
+			if grid[r][c] != null:
+				return grid[r][c]
+	return null
+
+func _trigger_booster_on_tile(tile: Node, booster_key: String) -> void:
+	var booster_enum = Booster.BoosterType.Striped
+	match booster_key:
+		"color_bomb": booster_enum = Booster.BoosterType.ColorBomb
+		"striped": booster_enum = Booster.BoosterType.Striped
+		"bomb": booster_enum = Booster.BoosterType.Bomb
+		"seeker": booster_enum = Booster.BoosterType.Seeker
+		"roller": booster_enum = Booster.BoosterType.Roller
+		"hammer": booster_enum = Booster.BoosterType.Hammer
+		"free_swap": booster_enum = Booster.BoosterType.FreeSwap
+		"brush": booster_enum = Booster.BoosterType.Brush
+		"ufo": booster_enum = Booster.BoosterType.UFO
+	
+	var booster = Booster.new(booster_enum, tile, self)
+	_play_booster_sound()
+	await booster.trigger()
+	print("Booster %s activated on tile at [%d, %d]" % [booster_key, tile.row, tile.col])
+
+func _update_booster_ui() -> void:
+	if booster_ui == null:
+		return
+	var booster_labels = {
+		"color_bomb": "Color Bomb",
+		"striped": "Striped",
+		"bomb": "Bomb",
+		"seeker": "Seeker",
+		"roller": "Roller",
+		"hammer": "Hammer",
+		"free_swap": "Free Swap",
+		"brush": "Brush",
+		"ufo": "UFO"
+	}
+	# Find VBoxContainer child
+	var vbox = null
+	for child in booster_ui.get_children():
+		if child is VBoxContainer:
+			vbox = child
+			break
+	
+	if vbox == null:
+		return
+	
+	# Update button texts and disabled states
+	for booster_key in run_boosters:
+		var btn_name = "btn_" + booster_key
+		var btn = vbox.get_node_or_null(btn_name)
+		if btn:
+			var label = booster_labels.get(booster_key, booster_key)
+			var uses = booster_inventory.get(booster_key, 0)
+			btn.text = "%s (%d)" % [label, uses]
+			btn.disabled = uses <= 0
+
+func _setup_earned_booster_ui() -> void:
+	if earned_booster_ui != null:
+		earned_booster_ui.queue_free()
+
+	var ui_width := 200
+	var ui_height := 220
+	var margin_right := 40
+	var vertical_offset := 340
+
+	var ui_container = Control.new()
+	ui_container.position = Vector2(cols * 64 + margin_right, vertical_offset)
+	ui_container.custom_minimum_size = Vector2(ui_width, ui_height)
+	add_child(ui_container)
+
+	var vbox = VBoxContainer.new()
+	vbox.custom_minimum_size = Vector2(ui_width, ui_height)
+	vbox.size_flags_horizontal = Control.SIZE_FILL
+	vbox.size_flags_vertical = Control.SIZE_FILL
+	ui_container.add_child(vbox)
+
+	var title = Label.new()
+	title.text = "EARNED"
+	title.custom_minimum_size = Vector2(200, 30)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 14)
+	vbox.add_child(title)
+
+	earned_booster_ui = ui_container
+	_update_earned_booster_ui()
+
+func _update_earned_booster_ui() -> void:
+	if earned_booster_ui == null:
+		return
+	
+	var booster_labels = {
+		"color_bomb": "Color Bomb",
+		"striped": "Striped",
+		"bomb": "Bomb",
+		"seeker": "Seeker",
+		"roller": "Roller",
+		"hammer": "Hammer",
+		"brush": "Brush",
+		"ufo": "UFO"
+	}
+	
+	var vbox = null
+	for child in earned_booster_ui.get_children():
+		if child is VBoxContainer:
+			vbox = child
+			break
+	
+	if vbox == null:
+		return
+	
+	var vbox_children = vbox.get_children()
+	for i in range(vbox_children.size() - 1, 0, -1):
+		vbox_children[i].queue_free()
+	
+	for booster_key in earned_boosters.keys():
+		var hbox = HBoxContainer.new()
+		hbox.custom_minimum_size = Vector2(200, 35)
+		vbox.add_child(hbox)
+
+		var label = Label.new()
+		label.text = booster_labels.get(booster_key, booster_key)
+		label.custom_minimum_size = Vector2(140, 35)
+		hbox.add_child(label)
+
+		var count_label = Label.new()
+		count_label.text = "x%d" % earned_boosters[booster_key]
+		count_label.custom_minimum_size = Vector2(50, 35)
+		count_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		hbox.add_child(count_label)
+
+func _award_booster_for_match(match_size: int) -> String:
+	var booster_types = [
+		"color_bomb", "striped", "bomb", "seeker",
+		"roller", "hammer", "brush", "ufo"
+	]
+	var random_booster = booster_types[randi() % booster_types.size()]
+	
+	if not earned_boosters.has(random_booster):
+		earned_boosters[random_booster] = 0
+	earned_boosters[random_booster] += 1
+	
+	print("Booster earned! %s (x%d)" % [random_booster, earned_boosters[random_booster]])
+	_update_earned_booster_ui()
+	return random_booster
+
+func _cell_key(r: int, c: int) -> String:
+	return "%d_%d" % [r, c]
+
+func _is_blocked_cell(r: int, c: int) -> bool:
+	return booster_blockers.has(_cell_key(r, c))
+
+func _block_cell(pos: Vector2i, node: Node) -> void:
+	booster_blockers[_cell_key(pos.x, pos.y)] = node
+
+func _unblock_cell(pos: Vector2i) -> void:
+	var key = _cell_key(pos.x, pos.y)
+	if booster_blockers.has(key):
+		booster_blockers.erase(key)
+
+func _blocked_rows_for_col(c: int) -> Dictionary:
+	var blocked := {}
+	for key in booster_blockers.keys():
+		var parts = key.split("_")
+		if parts.size() == 2:
+			var r = int(parts[0])
+			var cc = int(parts[1])
+			if cc == c:
+				blocked[r] = true
+	return blocked
 
 func _setup_debug_ui() -> void:
 	var ui_container = Control.new()
@@ -1006,91 +1270,166 @@ func _setup_debug_ui() -> void:
 
 	debug_ui = ui_container
 
-func _on_booster_ui_pressed(booster_key: String) -> void:
-	if booster_in_progress:
-		print("Booster already in use, wait...")
-		return
-	if current_state != BoardState.WaitForInput:
-		print("Cannot use booster during board animation")
-		return
-	
-	var uses = booster_inventory.get(booster_key, 0)
-	if uses <= 0:
-		print("No uses remaining for %s" % booster_key)
-		return
-	
-	# Consume one use
-	booster_inventory[booster_key] = uses - 1
-	_update_booster_ui()
-	
-	# Trigger booster at a random tile (or first valid tile)
-	var target_tile = _find_valid_booster_target()
-	if target_tile == null:
-		print("No valid target for booster")
-		return
-	
-	booster_in_progress = true
-	await _trigger_booster_on_tile(target_tile, booster_key)
-	booster_in_progress = false
+func _show_booster_popup(matched_tiles: Array, earned_booster_key: String) -> void:
+	# Remove old popup if exists
+	if booster_popup != null:
+		if booster_popup_pos != Vector2i(-1, -1):
+			_unblock_cell(booster_popup_pos)
+		booster_popup.queue_free()
+		booster_popup = null
+		booster_popup_pos = Vector2i(-1, -1)
 
-func _find_valid_booster_target() -> Node:
-	# Find first non-null tile for booster application
-	for r in range(rows):
-		for c in range(cols):
-			if grid[r][c] != null:
-				return grid[r][c]
-	return null
-
-func _update_booster_ui() -> void:
-	if booster_ui == null:
+	if matched_tiles.is_empty():
 		return
-	var booster_labels = {
-		"color_bomb": "Color Bomb",
-		"striped": "Striped",
-		"bomb": "Bomb",
-		"seeker": "Seeker",
-		"roller": "Roller",
-		"hammer": "Hammer",
-		"free_swap": "Free Swap",
-		"brush": "Brush",
-		"ufo": "UFO"
-	}
-	# Find VBoxContainer child
-	var vbox = null
-	for child in booster_ui.get_children():
-		if child is VBoxContainer:
-			vbox = child
-			break
-	
-	if vbox == null:
+	if earned_booster_key == "":
 		return
-	
-	# Update button texts for each booster
-	for booster_key in run_boosters:
-		var btn = vbox.get_node_or_null("btn_" + booster_key)
-		if btn:
-			var label = booster_labels.get(booster_key, booster_key)
-			var uses = booster_inventory.get(booster_key, 0)
-			btn.text = "%s (%d)" % [label, uses]
-			btn.disabled = uses <= 0
 
-func _trigger_booster_on_tile(tile: Node, booster_key: String) -> void:
-	var booster_enum = Booster.BoosterType.Striped
-	match booster_key:
-		"color_bomb": booster_enum = Booster.BoosterType.ColorBomb
-		"striped": booster_enum = Booster.BoosterType.Striped
-		"bomb": booster_enum = Booster.BoosterType.Bomb
-		"seeker": booster_enum = Booster.BoosterType.Seeker
-		"roller": booster_enum = Booster.BoosterType.Roller
-		"hammer": booster_enum = Booster.BoosterType.Hammer
-		"free_swap": booster_enum = Booster.BoosterType.FreeSwap
-		"brush": booster_enum = Booster.BoosterType.Brush
-		"ufo": booster_enum = Booster.BoosterType.UFO
-	
-	var booster = Booster.new(booster_enum, tile, self)
-	_play_booster_sound()
-	await booster.trigger()
-	print("Booster %s activated at [%d, %d]" % [booster_key, tile.row, tile.col])
+	# Calculate bounding box of matched tiles
+	var min_c = matched_tiles[0][1]
+	var min_r = matched_tiles[0][0]
+	var max_c = matched_tiles[0][1]
+	var max_r = matched_tiles[0][0]
+
+	for tile_data in matched_tiles:
+		var r = tile_data[0]
+		var c = tile_data[1]
+		min_r = mini(min_r, r)
+		min_c = mini(min_c, c)
+		max_r = maxi(max_r, r)
+		max_c = maxi(max_c, c)
+
+	# Choose bottom-left tile of the matched area
+	var booster_grid_r = max_r
+	var booster_grid_c = min_c
+
+	# Spawn booster visual as a board occupant
+	var booster_node = Node2D.new()
+	booster_node.name = "BoosterPopup"
+	booster_node.position = Vector2(booster_grid_c * 64, booster_grid_r * 64)
+	booster_node.z_index = 50
+	booster_node.set_meta("grid_pos", Vector2i(booster_grid_r, booster_grid_c))
+
+	var sprite = Sprite2D.new()
+	sprite.centered = true
+	var icon_path = "res://assets/booster_%s.svg" % earned_booster_key
+	if ResourceLoader.exists(icon_path):
+		var icon_tex = load(icon_path)
+		if icon_tex:
+			sprite.texture = icon_tex
+	booster_node.add_child(sprite)
+
+	var area = Area2D.new()
+	var collision = CollisionShape2D.new()
+	var shape = RectangleShape2D.new()
+	shape.size = Vector2(64, 64)
+	collision.shape = shape
+	area.add_child(collision)
+	booster_node.add_child(area)
+
+	area.input_event.connect(_on_booster_tile_input.bind(area, earned_booster_key, booster_node))
+
+	$Tiles.add_child(booster_node)
+	booster_popup = booster_node
+	booster_popup_pos = Vector2i(booster_grid_r, booster_grid_c)
+	_block_cell(booster_popup_pos, booster_node)
+
+	var timer = Timer.new()
+	timer.wait_time = 3.0
+	timer.one_shot = true
+	timer.timeout.connect(_on_booster_popup_timeout)
+	add_child(timer)
+	timer.start()
+
+func _on_booster_tile_input(_viewport, event: InputEvent, _shape_idx: int, area: Area2D, booster_key: String, booster_node: Node) -> void:
+	if event is InputEventMouseButton:
+		if event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+			print("Player selected booster: %s" % booster_key)
+			if not booster_inventory.has(booster_key):
+				booster_inventory[booster_key] = 0
+			booster_inventory[booster_key] += 1
+			_setup_booster_ui()
+			var pos: Vector2i = booster_node.get_meta("grid_pos", Vector2i(-1, -1))
+			booster_node.queue_free()
+			if booster_popup == booster_node:
+				booster_popup = null
+				booster_popup_pos = Vector2i(-1, -1)
+			if pos != Vector2i(-1, -1):
+				_unblock_cell(pos)
+			await _refill_after_booster_collect()
+
+func _on_booster_popup_timeout() -> void:
+	# Auto-remove popup after timeout
+	var pos := booster_popup_pos
+	if booster_popup != null:
+		booster_popup.queue_free()
+		booster_popup = null
+		booster_popup_pos = Vector2i(-1, -1)
+	if pos != Vector2i(-1, -1):
+		_unblock_cell(pos)
+		await _refill_after_booster_collect()
+
+func _refill_after_booster_collect() -> void:
+	set_state(BoardState.Fall)
+	var fall_tweens = []
+
+	match fill_mode:
+		FillMode.InPlace:
+			for r in range(rows):
+				for c in range(cols):
+					if grid[r][c] == null and not _is_blocked_cell(r, c):
+						var new_tile = spawn_tile(r, c, rng.randi_range(0, TILE_TYPES - 1))
+						new_tile.position = Vector2(c * 64, r * 64)
+						grid[r][c] = new_tile
+		FillMode.FallDown, FillMode.SideFall:
+			for c in range(cols):
+				var blocked_rows = _blocked_rows_for_col(c)
+				var write_r = rows - 1
+				while write_r >= 0 and blocked_rows.has(write_r):
+					write_r -= 1
+				for read_r in range(rows - 1, -1, -1):
+					if grid[read_r][c] != null:
+						var t = grid[read_r][c]
+						grid[write_r][c] = t
+						t.row = write_r
+						var target_y = write_r * 64
+						var tween = create_tween()
+						tween.set_trans(Tween.TRANS_SINE)
+						tween.set_ease(Tween.EASE_OUT)
+						tween.tween_property(t, "position", Vector2(t.position.x, target_y), 0.18)
+						fall_tweens.append(tween)
+						write_r -= 1
+						while write_r >= 0 and blocked_rows.has(write_r):
+							write_r -= 1
+				var spawn_r = write_r
+				while spawn_r >= 0:
+					if blocked_rows.has(spawn_r):
+						spawn_r -= 1
+						continue
+					var new_type = rng.randi_range(0, TILE_TYPES - 1)
+					var new_tile = spawn_tile(spawn_r, c, new_type)
+					new_tile.position = Vector2(c * 64, -64)
+					grid[spawn_r][c] = new_tile
+					var target_y2 = spawn_r * 64
+					var tween2 = create_tween()
+					tween2.set_trans(Tween.TRANS_SINE)
+					tween2.set_ease(Tween.EASE_OUT)
+					tween2.tween_property(new_tile, "position", Vector2(c * 64, target_y2), 0.22)
+					fall_tweens.append(tween2)
+					spawn_r -= 1
+			if fill_mode == FillMode.SideFall:
+				_side_fall_pass(fall_tweens)
+
+	if fall_tweens.size() > 0:
+		await fall_tweens[0].finished
+
+	set_state(BoardState.Fill)
+
+	var new_result = find_matches_with_groups()
+	if not new_result["matches"].is_empty():
+		await handle_matches_and_refill(new_result)
+	else:
+		set_state(BoardState.WaitForInput)
+		_check_game_over()
 
 func _on_debug_booster_pressed(booster_type: String) -> void:
 	if booster_in_progress:
@@ -1277,10 +1616,20 @@ func _show_game_over_screen(victory: bool) -> void:
 	game_over.next_level_requested.connect(_on_next_level_requested)
 
 func _on_restart_requested() -> void:
+	_cleanup_game_over_screens()
 	reset_game()
 
 func _on_next_level_requested() -> void:
 	# Increase difficulty for next level
 	goal_score = int(goal_score * 1.5)
 	moves_limit = max(20, moves_limit - 2)
+	_cleanup_game_over_screens()
 	reset_game()
+
+func _cleanup_game_over_screens() -> void:
+	# Remove any existing GameOverScreen instances
+	var parent = get_parent()
+	if parent:
+		for child in parent.get_children():
+			if child.name.begins_with("GameOverScreen") or child.is_in_group("game_over_screen"):
+				child.queue_free()

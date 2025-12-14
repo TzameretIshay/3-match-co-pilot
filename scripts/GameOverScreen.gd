@@ -10,6 +10,7 @@ signal next_level_requested
 @export var moves_total: int = 30
 
 func _ready() -> void:
+	add_to_group("game_over_screen")
 	update_display()
 
 func update_display() -> void:
