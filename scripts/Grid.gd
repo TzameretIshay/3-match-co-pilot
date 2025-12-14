@@ -105,6 +105,7 @@ var booster_popup: Node = null  # Temporary popup button for earned booster
 var last_match_tiles: Array = []  # Track tiles from last match for popup placement
 var booster_popup_pos: Vector2i = Vector2i(-1, -1)
 var booster_blockers: Dictionary = {}  # key -> booster node occupying a cell
+var seatheme_sprites: Array = []  # Sliced sprites from seatheme sprite sheet
 
 func set_state(next: BoardState) -> void:
 	if current_state == next:
@@ -145,6 +146,9 @@ func _ready() -> void:
 	add_child(sfx_match)
 	add_child(sfx_swap)
 	add_child(sfx_booster)
+	
+	# Load seatheme sprite sheet and slice it
+	seatheme_sprites = _load_seatheme_sprites()
 	
 	# Spawn initial 8x8 grid ensuring no immediate matches
 	init_grid()
@@ -191,18 +195,12 @@ func spawn_tile(r: int, c: int, type_idx: int) -> Node:
 	# Initialize tile properties (type, row, col, powerup flags)
 	tile.set_tile(type_idx, r, c)
 	
-	# Try to assign texture in priority order: PNG > SVG > Procedural
-	var png_path = "res://assets/tile_%d.png" % type_idx
-	var svg_path = "res://assets/tile_%d.svg" % type_idx
-	
-	if ResourceLoader.exists(png_path):
-		var tex = load(png_path)
-		if tex and tile.has_node("Sprite"):
-			tile.get_node("Sprite").texture = tex
-	elif ResourceLoader.exists(svg_path):
-		var tex2 = load(svg_path)
-		if tex2 and tile.has_node("Sprite"):
-			tile.get_node("Sprite").texture = tex2
+	# Use seatheme sprites if available, otherwise fallback to procedural
+	if seatheme_sprites.size() > 0 and tile.has_node("Sprite"):
+		var sprite_idx = type_idx % seatheme_sprites.size()
+		var sprite = tile.get_node("Sprite")
+		sprite.texture = seatheme_sprites[sprite_idx]
+		sprite.scale = Vector2(0.388, 0.388)  # Scale to match 64px grid exactly
 	else:
 		# Fallback: generate procedural texture (colored square with circle)
 		if not auto_textures.has(type_idx):
@@ -1503,6 +1501,35 @@ func _make_placeholder_texture(type_idx: int) -> ImageTexture:
 	# Convert image to texture
 	var texture = ImageTexture.create_from_image(img)
 	return texture
+
+func _load_seatheme_sprites() -> Array:
+	# Load and slice seatheme sprite sheet
+	var sheet = load("res://assets/seatheme/Gemini_Generated_Image_2beqog2beqog2beq.png")
+	if sheet == null:
+		print("ERROR: Seatheme sprite sheet not found!")
+		return []
+	
+	var sprites = []
+	var cols = 6
+	var rows = 6
+	var sprite_size = 165
+	var offset_x = 15
+	var offset_y = 15
+	
+	for row in range(rows):
+		for col in range(cols):
+			var atlas_tex = AtlasTexture.new()
+			atlas_tex.atlas = sheet
+			atlas_tex.region = Rect2(
+				offset_x + col * sprite_size,
+				offset_y + row * sprite_size,
+				sprite_size,
+				sprite_size
+			)
+			sprites.append(atlas_tex)
+	
+	print("Loaded %d seatheme sprites" % sprites.size())
+	return sprites
 
 func reset_game() -> void:
 	# Clear board and reset game state for restart
