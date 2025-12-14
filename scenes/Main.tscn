@@ -1,10 +1,16 @@
-[gd_scene load_steps=4 format=3 uid="uid://chjvtmieguiuy"]
+[gd_scene load_steps=5 format=3 uid="uid://chjvtmieguiuy"]
 
 [ext_resource type="Script" uid="uid://chs17yqajaghn" path="res://scripts/Grid.gd" id="1"]
 [ext_resource type="PackedScene" path="res://scenes/UI.tscn" id="2"]
 [ext_resource type="PackedScene" path="res://scenes/StartScreen.tscn" id="3"]
+[ext_resource type="Script" path="res://scripts/BackgroundManager.gd" id="4"]
 
 [node name="Main" type="Node2D"]
+
+[node name="Background" type="Sprite2D" parent="."]
+z_index = -1
+centered = false
+script = ExtResource("4")
 
 [node name="Grid" type="Node2D" parent="."]
 position = Vector2(320, 120)

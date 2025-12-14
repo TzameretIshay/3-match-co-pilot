@@ -13,6 +13,26 @@ text = "Score: 0"
 position = Vector2( 16, 44 )
 text = "Moves: 0"
 
+[node name="LevelLabel" type="Label" parent="."]
+position = Vector2( 16, 72 )
+text = "Level: 1"
+
 [node name="RestartButton" type="Button" parent="."]
-position = Vector2( 16, 80 )
+position = Vector2( 16, 108 )
 text = "Restart"
+
+[node name="HighScoreLabel" type="Label" parent="."]
+anchor_left = 1.0
+anchor_right = 1.0
+position = Vector2( -150, 16 )
+size = Vector2( 140, 20 )
+text = "High Score: 0"
+horizontal_alignment = 2
+
+[node name="MaxLevelLabel" type="Label" parent="."]
+anchor_left = 1.0
+anchor_right = 1.0
+position = Vector2( -150, 44 )
+size = Vector2( 140, 20 )
+text = "Max Level: 1"
+horizontal_alignment = 2

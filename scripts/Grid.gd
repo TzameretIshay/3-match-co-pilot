@@ -8,6 +8,7 @@ extends Node2D
 # ===== SIGNALS =====
 signal score_changed(new_score)
 signal moves_changed(remaining_moves)
+signal level_changed(new_level)
 signal state_changed(previous: int, current: int)
 signal swap_accepted(a_pos: Vector2i, b_pos: Vector2i)
 signal swap_rejected(a_pos: Vector2i, b_pos: Vector2i)
@@ -65,6 +66,7 @@ const TILE_TYPES: int = 6             # 6 different tile colors (0-5)
 # ===== GAME STATE VARIABLES =====
 var grid := []                         # 2D array of Tile nodes [row][col]
 var score: int = 0                     # Total score accumulated
+var level: int = 1                     # Current level number
 var moves_left: int                    # Remaining moves in this game
 var rng := RandomNumberGenerator.new() # Random number generator for tile spawning
 var selected_tile: Node = null         # Currently selected tile (for UI feedback)
@@ -73,6 +75,7 @@ var _selected_pos: Vector2i = Vector2i(-1, -1) # Click-mode selection anchor
 
 # ===== ASSET & ANIMATION VARIABLES =====
 var tile_scene: PackedScene            # Tile.tscn template for instantiation
+var next_level_booster_scene: PackedScene # NextLevelBoosterScreen.tscn for level ups
 var auto_textures := {}                # Cache for generated placeholder textures
 var particle_scene: PackedScene        # Match particle effect template
 
@@ -131,6 +134,8 @@ func _ready() -> void:
 	tile_scene = load("res://scenes/Tile.tscn")
 	particle_scene = load("res://scenes/MatchParticles.tscn")
 	game_over_scene = load("res://scenes/GameOverScreen.tscn")
+	next_level_booster_scene = load("res://scenes/NextLevelBoosterScreen.tscn")
+	next_level_booster_scene = load("res://scenes/NextLevelBoosterScreen.tscn")
 	
 	# Setup audio (currently unused, but ready for SFX)
 	audio_generator = AudioStreamGenerator.new()
@@ -1541,18 +1546,29 @@ func reset_game() -> void:
 	moves_left = moves_limit
 	emit_signal("score_changed", score)
 	emit_signal("moves_changed", moves_left)
+	emit_signal("level_changed", level)
 	set_state(BoardState.WaitForInput)
 	print("Run boosters: %s" % [run_boosters])
 
-func set_run_boosters(choices: Array) -> void:
-	run_boosters = choices.duplicate()
-	if run_boosters.size() > 3:
-		run_boosters.resize(3)
-	# Initialize inventory: 3 uses per booster
-	booster_inventory.clear()
-	for booster_key in run_boosters:
-		booster_inventory[booster_key] = 3
+func set_run_boosters(choices: Array, is_initial: bool = true) -> void:
+	if is_initial:
+		# Initial selection: replace boosters
+		run_boosters = choices.duplicate()
+		booster_inventory.clear()
+	else:
+		# Next level selection: add to existing boosters
+		for choice in choices:
+			if choice not in run_boosters:
+				run_boosters.append(choice)
+	
+	# Add 3 uses for each newly selected booster
+	for booster_key in choices:
+		if not booster_inventory.has(booster_key):
+			booster_inventory[booster_key] = 0
+		booster_inventory[booster_key] += 3
+	
 	print("Selected boosters for run: %s" % [run_boosters])
+	print("Booster inventory: %s" % [booster_inventory])
 	_setup_booster_ui()
 
 func can_swap_positions(a: Vector2i, b: Vector2i) -> bool:
@@ -1626,6 +1642,8 @@ func _check_game_over() -> void:
 	var is_defeat = moves_left <= 0
 	
 	if is_victory or is_defeat:
+		# Update high score if needed
+		PlayerStats.update_high_score(score)
 		_show_game_over_screen(is_victory)
 
 func _show_game_over_screen(victory: bool) -> void:
@@ -1648,10 +1666,12 @@ func _on_restart_requested() -> void:
 
 func _on_next_level_requested() -> void:
 	# Increase difficulty for next level
+	level += 1
+	PlayerStats.update_max_level(level)
 	goal_score = int(goal_score * 1.5)
 	moves_limit = max(20, moves_limit - 2)
 	_cleanup_game_over_screens()
-	reset_game()
+	_show_next_level_booster_screen()
 
 func _cleanup_game_over_screens() -> void:
 	# Remove any existing GameOverScreen instances
@@ -1660,3 +1680,15 @@ func _cleanup_game_over_screens() -> void:
 		for child in parent.get_children():
 			if child.name.begins_with("GameOverScreen") or child.is_in_group("game_over_screen"):
 				child.queue_free()
+
+func _show_next_level_booster_screen() -> void:
+	if next_level_booster_scene == null:
+		return
+	
+	var booster_screen = next_level_booster_scene.instantiate()
+	get_parent().add_child(booster_screen)
+	booster_screen.boosters_selected.connect(_on_next_level_boosters_selected)
+
+func _on_next_level_boosters_selected(booster_keys: Array) -> void:
+	set_run_boosters(booster_keys, false)  # false = add to existing boosters
+	reset_game()
