@@ -146,8 +146,8 @@ Modify in `Grid.gd`:
 ## 🙏 Credits
 - **Engine**: Godot 4.5.1
 - **Art Assets**: Sea-themed sprite sheets
-- **Music**: Background music MP3
+- **Music**: Suno AI
 - **Development**: Built with GitHub Copilot assistance
 
 ## 📄 License
-Match-3 CoPilot is provided as-is for educational and personal use.
+Match-3 CoPilot is provided as-is for personal use.
