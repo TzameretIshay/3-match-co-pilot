@@ -1314,6 +1314,7 @@ func _show_booster_popup(matched_tiles: Array, earned_booster_key: String) -> vo
 
 	var sprite = Sprite2D.new()
 	sprite.centered = true
+	sprite.scale = Vector2(0.6, 0.6)
 	var icon_path = "res://assets/booster_%s.svg" % earned_booster_key
 	if ResourceLoader.exists(icon_path):
 		var icon_tex = load(icon_path)
@@ -1322,6 +1323,7 @@ func _show_booster_popup(matched_tiles: Array, earned_booster_key: String) -> vo
 	booster_node.add_child(sprite)
 
 	var area = Area2D.new()
+	area.input_pickable = true  # Enable to receive mouse input
 	var collision = CollisionShape2D.new()
 	var shape = RectangleShape2D.new()
 	shape.size = Vector2(64, 64)
@@ -1337,7 +1339,7 @@ func _show_booster_popup(matched_tiles: Array, earned_booster_key: String) -> vo
 	_block_cell(booster_popup_pos, booster_node)
 
 	var timer = Timer.new()
-	timer.wait_time = 3.0
+	timer.wait_time = 10.0  # Increased from 3 to 10 seconds
 	timer.one_shot = true
 	timer.timeout.connect(_on_booster_popup_timeout)
 	add_child(timer)
